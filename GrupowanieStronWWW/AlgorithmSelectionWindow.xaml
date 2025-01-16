@@ -1,0 +1,40 @@
+﻿<Window x:Class="GrupowanieStronWWW.AlgorithmSelectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:GrupowanieStronWWW"
+        mc:Ignorable="d"
+        Title="Algorithm Selection" Height="210" Width="350">
+    <Grid Margin="0">
+        <StackPanel Background="#FFCBD2D2">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                <TextBlock Text="Choose Algorithm:" Margin="5"/>
+                <ComboBox x:Name="AlgorithmComboBox" Width="150" Margin="5">
+                    <ComboBoxItem Content="K-Means" />
+                    <ComboBoxItem Content="Hierarchical" />
+                </ComboBox>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                <TextBlock Text="Choose Metrics:" Margin="5,0,5,0"/>
+                <ComboBox x:Name="DistanceMetricComboBox" Width="150" Margin="19,0,5,0">
+                    <ComboBoxItem Content="Euclidean" />
+                    <ComboBoxItem Content="Cosine" />
+                </ComboBox>
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Text="Parameters:" Margin="5" />
+                <StackPanel Orientation="Horizontal" Margin="10,0,0,10">
+                    <TextBlock Text="Clusters:" Width="100" VerticalAlignment="Center" />
+                    <TextBox x:Name="ClustersTextBox" Width="100" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="10,0,0,10"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="5">
+                <Button Content="OK" Width="75" Margin="5" Click="OkButton_Click" />
+                <Button Content="Cancel" Width="75" Margin="5" Click="CancelButton_Click" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>
