@@ -12,6 +12,12 @@ using System.Windows;
 using System.Windows.Controls;
 using Accord.Statistics.Distributions.Multivariate;
 using System.Diagnostics;
+using Numerics.NET.Data.Stata;
+using Numerics.NET;
+using Numerics.NET.Statistics;
+using Numerics.NET.Statistics.Multivariate;
+using static GrupowanieStronWWW.MainWindow;
+using System.Reflection.Emit;
 
 
 namespace GrupowanieStronWWW
@@ -19,9 +25,10 @@ namespace GrupowanieStronWWW
     public partial class MainWindow : Window
     {
         private List<CityData> _cityData;
-        //private List<AnalizedCity> _analizedData;
         private List<ClusteredCity> _clusteredData;
         private static readonly string[] collection = new[] { "the", "and", "is", "of", "in", "to", "a", "on", "for", "as", "with", "by", "it", "at" };
+        private List<string> allStrings;
+        private int[] trueLabels;
 
         public class CityData
         {
@@ -50,6 +57,9 @@ namespace GrupowanieStronWWW
         public MainWindow()
         {
             InitializeComponent();
+            const string license = "xxxx";
+            Numerics.NET.License.Verify(license);
+
         }
         private void LoadButton_Click(object sender, RoutedEventArgs e)
         {
@@ -70,6 +80,9 @@ namespace GrupowanieStronWWW
                     using var csv = new CsvReader(reader, config);
 
                     _cityData = csv.GetRecords<CityData>().ToList();
+
+                    trueLabels = GenerateLabelsByClass(_cityData, city => city.Country);
+
                     CityListView.ItemsSource = _cityData;
 
                     MessageBox.Show("Data loaded successfully!");
@@ -80,6 +93,19 @@ namespace GrupowanieStronWWW
                 MessageBox.Show($"Error loading data: {ex.Message}");
             }
         }
+
+        private int[] GenerateLabelsByClass<T>(List<T> data, Func<T, string> classSelector)
+        {
+            var classToClusterMap = data
+                .Select(classSelector)
+                .Distinct()
+                .Select((className, index) => new { className, index })
+                .ToDictionary(x => x.className, x => x.index);
+
+            return data
+                .Select(item => classToClusterMap[classSelector(item)])
+                .ToArray();
+        }
         private static List<string> Tokenize(string text)
         {
             string workText = new(text.ToLower());
@@ -89,36 +115,6 @@ namespace GrupowanieStronWWW
             List<string> result = workText.Split(' ').Where(word => !stopwords.Contains(word) && !string.IsNullOrWhiteSpace(word)).ToList();
             return result;
         }
-        private void AnalyzeButton_Click(object sender, RoutedEventArgs e)
-        {
-            /*
-            if (_cityData == null || _cityData.Count == 0)
-            {
-                MessageBox.Show($"Error analizing data: no data loaded");
-                return;
-            }
-            try
-            {
-
-                _analizedData = new List<AnalizedCity>();
-
-                foreach (var cityData in _cityData)
-                {
-                    var tokens = cityData.Description != null ? Tokenize(cityData.Description) : new List<string>();
-                    var analyzedCity = new AnalizedCity(cityData.Country, cityData.City, tokens);
-                    _analizedData.Add(analyzedCity);
-
-                }
-                CityListAnalyzed.ItemsSource = _analizedData;
-                MessageBox.Show("Data analized successfully!");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error analizing data: {ex.Message}");
-            }*/
-        }
-
-
         private void RunClusteringButton_Click(object sender, RoutedEventArgs e)
         {
             if (_cityData == null || !_cityData.Any())
@@ -127,19 +123,25 @@ namespace GrupowanieStronWWW
                 return;
             }
 
-            var selectedMethod = (EncodingMethodComboBox.SelectedItem as ComboBoxItem)?.Content.ToString();
+            var selectedMethod = EncodingMethodComboBox.Text;
             var descriptions = _cityData.Select(c => c.Description).ToList();
+            
+            var longSentence = string.Join(" ", descriptions);
+
+            var terms = Tokenize(longSentence);
+            allStrings = terms.Distinct().ToList();
+            
             double[][] featureVectors;
             switch (selectedMethod)
             {
                 case "TF":
-                    featureVectors = ComputeTF(descriptions);
+                    featureVectors = ComputeTF(descriptions, allStrings);
                     break;
                 case "TF-IDF":
-                    featureVectors = ComputeTFIDF(descriptions);
+                    featureVectors = ComputeTFIDF(descriptions, allStrings);
                     break;
                 case "Binary":
-                    featureVectors = ComputeBinary(descriptions);
+                    featureVectors = ComputeBinary(descriptions, allStrings);
                     break;
                 default:
                     MessageBox.Show("Please select an encoding method.");
@@ -154,24 +156,16 @@ namespace GrupowanieStronWWW
                 var epsilon = dialog.Epsilon;
                 var distanceMetrics = dialog.DistanceMetrics;
                 var metric = dialog.metric;
+                var linkage = dialog.linkage;
 
                 switch (selectedAlgorithm)
                 {
                     case "K-Means":
-                        RunKMeans(featureVectors, clusters: clusters, distanceMetric: distanceMetrics);
+                        RunKMeans(featureVectors, clusters: clusters, distanceMetric: distanceMetrics, metric: metric);
                         break;
-                    //case "EM":
-                        //RunEMClustering(featureVectors, metric, clusters);
-                        //break;
                     case "Hierarchical":
-                        RunHierarchical(featureVectors, clusters, metric);
+                        RunHierarchical(featureVectors, clusters, metric, linkage);
                         break;
-                    //case "DBSCAN":
-                        //RunDBSCAN(featureVectors, distanceMetrics,epsilon, clusters);
-                        //break;
-                    //case "Mean-Shift":
-                        //RunMeanShift(featureVectors);
-                        //break;
                     default:
                         MessageBox.Show("No valid algorithm selected.");
                         break;
@@ -179,232 +173,87 @@ namespace GrupowanieStronWWW
             }
         }
 
-        private void RunHierarchical(double[][] featureVectors, int desiredClusters, string metric)
+        private void RunHierarchical(double[][] featureVectors, int desiredClusters, string metric, string linkage)
         {
-            //Debug.WriteLine("Input Feature Vectors:");
-            //foreach (var vector in featureVectors)
-            //{
-                //Debug.WriteLine($"({string.Join(", ", vector)})");
-            //}
-            if (metric != "Cosine" & metric != "Euclidean") throw new ArgumentException("Unsupported distance metric. Use 'Euclidean' or 'Cosine'.");
-
-            List<List<double[]>> clusters = featureVectors.Select(fv => new List<double[]> {fv}).ToList();
-            List<int> clustersBook = Enumerable.Range(0, featureVectors.Length).ToList();
-            var lenght = featureVectors.Length;
-            var clustersCount = featureVectors.Length;
-
+            if (metric != "Cosine" & metric != "Euclidean") throw new ArgumentException("Unsupported distance metric. Use 'Euclidean' or 'Cosine'.");            
+            int length = featureVectors.Length;
+            List<int> clustersBook = Enumerable.Range(0, length).ToList();
+            var clustersCount = length;
+            ValidateFeatureVectors(featureVectors);
+            var dataMatrix = Matrix.Create(featureVectors);
+            var hc = new HierarchicalClusterAnalysis(dataMatrix);
+            
             if (metric == "Cosine")
             {
-                while (clustersCount > desiredClusters)
-                {
-                    double minDistance = double.MaxValue;
-                    int cluster1Index = 0;
-                    int cluster2Index = 0;
-
-                    for (int i = 0; i + 1 < lenght; i++)
-                    {
-                        for (int j = i+1; j < lenght; j++)
-                        {
-                            if (clustersBook[i] != clustersBook[j])
-                            {
-                                double distance = CosineDistance(featureVectors[i], featureVectors[j]);//CalculateCosineClusterDistance(clusters[i], clusters[j]);
-
-                                if (distance < minDistance)
-                                {
-                                    minDistance = distance;
-                                    cluster1Index = i;
-                                    cluster2Index = j;
-                                }
-                            }
-                        }
-                    }
-                    Debug.WriteLine(minDistance.ToString());
-                    // laczenie klastrow tak aby zachowac najmniejsze mozliwie numery grup
-                    if (clustersBook[cluster1Index] < clustersBook[cluster2Index])
-                    {
-                        for(int i = 0;i < lenght;i++)
-                        {
-                            if (clustersBook[i] == clustersBook[cluster2Index]) clustersBook[i] = clustersBook[cluster1Index];
-                        }
-                    }
-                    else
-                    {
-                        for (int i = 0; i < lenght; i++)
-                        {
-                            if (clustersBook[i] == clustersBook[cluster1Index]) clustersBook[i] = clustersBook[cluster2Index];
-                        }
-                    }
-
-                    clustersCount = clustersBook.Distinct().Count();
-                    Debug.WriteLine(clustersCount.ToString());
-                    Debug.WriteLine($"{clustersBook[cluster1Index]} {clustersBook[cluster2Index]} {cluster1Index} {cluster2Index}");
-                }
+                hc.DistanceMeasure = DistanceMeasures.CosineDistance;
             }
             else
             {
-                while (clusters.Count > desiredClusters)
-                {
-                    double minDistance = double.MaxValue;
-                    int cluster1Index = 0;
-                    int cluster2Index = 0;
-
-                    for (int i = 0; i + 1 < clusters.Count; i++)
-                    {
-                        for (int j = +1; j < clusters.Count; j++)
-                        {
-                            double distance = CalculateEuclideanClusterDistance(clusters[i], clusters[j]);
-                            if (distance < minDistance)
-                            {
-                                minDistance = distance;
-                                cluster1Index = i;
-                                cluster2Index = j;
-                            }
-
-                        }
-                    }
-                    clusters[cluster1Index].AddRange(clusters[cluster2Index]);
-                    clusters.RemoveAt(cluster2Index);
-                }
+                hc.DistanceMeasure = DistanceMeasures.EuclideanDistance;
             }
 
-            Debug.WriteLine("Moje grupy");
-            for (int i = 0; i < lenght; i++)
+            switch (linkage)
             {
-                Debug.WriteLine(clustersBook[i].ToString());
+                case "McQuitty":
+                    hc.LinkageMethod = LinkageMethod.McQuitty;
+                    break;
+                case "Median":
+                    hc.LinkageMethod = LinkageMethod.Median;
+                    break;
+                case "Average":
+                    hc.LinkageMethod = LinkageMethod.Average;
+                    break;
+                case "Centroid":
+                    hc.LinkageMethod = LinkageMethod.Centroid;
+                    break;
+                case "Ward":
+                    hc.LinkageMethod = LinkageMethod.Ward;
+                    break;
+                case "Single":
+                    hc.LinkageMethod = LinkageMethod.Single;
+                    break;
+                case "Complete":
+                    hc.LinkageMethod = LinkageMethod.Complete;
+                    break;
+                default:
+                    break;
             }
 
+            hc.Standardize = true;
+            hc.Fit();
+            var partition = hc.GetClusterPartition(desiredClusters);
+            foreach (var cluster in partition)
+            {
+                Debug.WriteLine($"Cluster {cluster.Index} has {cluster.Size} members.");
+            }
 
-            MessageBox.Show("Hierarchical clustering completed!");
+            var memberships = partition.GetMemberships();
+            int[] labels = new int[length];
+            _clusteredData = _cityData.Select((c, i) => new ClusteredCity
+            {
+                Country = c.Country,
+                City = c.City,
+                Description = c.Description,
+                GroupLabel = memberships.GetLevelIndex(i),
+                
+            }).ToList();
+            for (int i = 0; i < length; i++)
+            {
+                labels[i] = memberships.GetLevelIndex(i);
+            }
+
+            ResultsListView.ItemsSource = _clusteredData;
+            double RandId = RandIndex(trueLabels, labels);
+            double silhouetteScore = SilhouetteScore(featureVectors, labels, metric == "Cosine"? CosineDistance : EuclideanDistance);
+            double wcss = WCSS(featureVectors, labels, metric == "Cosine" ? CosineDistance : EuclideanDistance);
+            ResultsListView.ItemsSource = _clusteredData;
+            MessageBox.Show($"K-Means clustering completed!\nRandIndex: \t{RandId:F4}\nSilhouetteScore: \t{silhouetteScore:F4}\nWCSS: \t\t{wcss:F4}");
         }
-
-        class ArrayComparer : IEqualityComparer<double[]>
+        
+        private void RunKMeans(double[][] featureVectors, int clusters, IDistance<double[]> distanceMetric, string metric)
         {
-            public bool Equals(double[] x, double[] y)
-            {
-                return x.SequenceEqual(y);
-            }
-
-            public int GetHashCode(double[] obj)
-            {
-                unchecked
-                {
-                    return obj.Aggregate(17, (hash, value) => hash * 31 + value.GetHashCode());
-                }
-            }
-        }
-
-        private double CalculateCosineClusterDistance(List<double[]> cluster1,  List<double[]> cluster2)
-        {
-            double minDistance = double.MaxValue;
-
-            foreach (var point1 in cluster1)
-            {
-                foreach (var point2 in cluster2)
-                {
-                    double distance = CosineDistance(point1, point2);
-                    if (distance < minDistance)
-                    {
-                        minDistance = distance;
-                    }
-                }
-            }
-
-            return minDistance;
-        }
-        private double CalculateEuclideanClusterDistance(List<double[]> cluster1, List<double[]> cluster2)
-        {
-            double minDistance = double.MaxValue;
-
-            foreach (var point1 in cluster1)
-            {
-                foreach (var point2 in cluster2)
-                {
-                    double distance = EuclideanDistance(point1, point2);
-                    if (distance < minDistance)
-                    {
-                        minDistance = distance;
-                    }
-                }
-            }
-
-            return minDistance;
-        }
 
 
-        private void RunEMClustering(double[][] featureVectors, string metric, int clusters)
-        {
-            try
-            {
-                if (metric == "Cosine")
-                {
-                    featureVectors = NormalizeData(featureVectors);
-                    MessageBox.Show("EM cosine clustering completed!");
-                }
-                else
-                {
-                    MessageBox.Show("EM euclidean clustering completed!");
-                }
-
-                var gmm = new GaussianMixtureModel(clusters);
-
-                var labels = gmm.Learn(featureVectors).Decide(featureVectors);
-
-                _clusteredData = _cityData.Select((city, index) => new ClusteredCity
-                {
-                    Country = city.Country,
-                    City = city.City,
-                    Description = city.Description,
-                    GroupLabel = labels[index]
-                }).ToList();
-
-                ResultsListView.ItemsSource = _clusteredData;
-                MessageBox.Show("EM clustering completed!");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error running EM Clustering: {ex.Message}");
-            }
-        }
-
-        private double[][] NormalizeData(double[][] data)
-        {
-            return data.Select(row =>
-            {
-                double norm = Math.Sqrt(row.Sum(value => value * value));
-                return row.Select(value => value / norm).ToArray();
-            }).ToArray();
-        }
-
-
-        /*
-        private void RunHierarchicalClustering(double[][] featureVectors, int clusters)
-        {
-                //var hierarchical = new AgglomerativeClustering()
-                {
-                    Distance = new Euclidean(),      // Use Euclidean distance
-                    Linkage = Linkage.Complete      // Use Complete Linkage
-                };
-
-                // Step 2: Perform clustering
-                int[] labels = hierarchical.Learn(featureVectors).Decide(featureVectors, clusters);
-
-                // Step 3: Map results back to the city data
-                _clusteredData = _cityData.Select((city, index) => new ClusteredCity
-                {
-                    Country = city.Country,
-                    City = city.City,
-                    Description = city.Description,
-                    GroupLabel = labels[index]
-                }).ToList();
-
-                // Step 4: Display results in the ListView
-                ResultsListView.ItemsSource = _clusteredData;
-
-                MessageBox.Show("Hierarchical clustering completed!");
-        }*/
-
-        private void RunKMeans(double[][] featureVectors, int clusters, IDistance<double[]> distanceMetric)
-        {
             var kMeans = new Accord.MachineLearning.KMeans(k: clusters, distance: distanceMetric);
             var labels = kMeans.Learn(featureVectors).Decide(featureVectors);
 
@@ -416,94 +265,95 @@ namespace GrupowanieStronWWW
                 GroupLabel = labels[i]
             }).ToList();
 
+            double RandId = RandIndex(trueLabels,labels);
+            double silhouetteScore = SilhouetteScore(featureVectors, labels, metric == "Cosine" ? CosineDistance : EuclideanDistance);
+            double wcss = WCSS(featureVectors,labels, metric == "Cosine" ? CosineDistance : EuclideanDistance);
             ResultsListView.ItemsSource = _clusteredData;
-            MessageBox.Show("K-Means clustering completed!");
+            MessageBox.Show($"K-Means clustering completed!\nRandIndex: \t{RandId:F4}\nSilhouetteScore: \t{silhouetteScore:F4}\nWCSS: \t\t{wcss:F4}");
         }
 
-        /*
-        private void RunDBSCAN(double[][] featureVectors, IDistance<double[]> distanceMetric, double epsilon, int clusters)
+        private void ValidateFeatureVectors(double[][] featureVectors)
         {
-            try
+            if (featureVectors == null || featureVectors.Length == 0)
+                throw new ArgumentException("Feature vectors cannot be null or empty.");
+
+            int firstRowLength = featureVectors[0].Length;
+            foreach (var row in featureVectors)
             {
-                var dbscan = new DBSCAN<IDistance<double[]>>(epsilon: epsilon, minPoints: clusters, distance: distanceMetric);
-
-
-                var labels = dbscan.Compute(featureVectors);
-
-                _clusteredData = _cityData.Select((c, i) => new ClusteredCity
-                {
-                    Country = c.Country,
-                    City = c.City,
-                    Description = c.Description,
-                    GroupLabel = labels[i] == -1 ? "Outlier" : labels[i].ToString()
-                }).ToList();
-
-                ResultsListView.ItemsSource = _clusteredData;
-                MessageBox.Show("DBSCAN clustering completed!");
+                if (row.Length != firstRowLength)
+                    throw new ArgumentException("All rows in feature vectors must have the same length.");
             }
-            catch
-            (Exception ex)
-            {
-                MessageBox.Show($"Error running DBSCAN: {ex.Message}");
-            }                     
-        }*/
-
-        private double[][] ComputeBinary(List<string> descriptions)
+        }       
+        private double[][] ComputeBinary(List<string> descriptions, List<string> allStrings)
         {
-            var terms = descriptions.Select(d => Tokenize(d)).ToList();
-            var allTerms = terms.SelectMany(t => t).Distinct().ToList();
+            var tokenizedDescriptions = descriptions.Select(desc => Tokenize(desc)).ToList();
 
-            double[][] binary = new double[descriptions.Count][];
+            double[][] binaryMatrix = new double[descriptions.Count][];
             for (int i = 0; i < descriptions.Count; i++)
             {
-                binary[i] = new double[allTerms.Count];
-                for (int j = 0; j < allTerms.Count; j++)
+                binaryMatrix[i] = new double[allStrings.Count];
+                foreach (var term in allStrings)
                 {
-                    var term = allTerms[j];
-                    binary[i][j] = terms[i].Contains(term) ? 1.0 : 0.0;
+                    binaryMatrix[i][allStrings.IndexOf(term)] = tokenizedDescriptions[i].Contains(term) ? 1.0 : 0.0;
                 }
             }
-            return binary;
+            return binaryMatrix;
         }
-        private double[][] ComputeTF(List<string> descriptions)
+        private double[][] ComputeTF(List<string> descriptions, List<string> allStrings)
         {
-            var terms = descriptions.Select(d => Tokenize(d)).ToList();
-            var allTerms = terms.SelectMany(t => t).Distinct().ToList();
+            // Tokenize descriptions
+            var tokenizedDescriptions = descriptions.Select(desc => Tokenize(desc)).ToList();
+            double[][] tfMatrix = new double[descriptions.Count][];
 
-            double[][] tf = new double[descriptions.Count][];
             for (int i = 0; i < descriptions.Count; i++)
             {
-                tf[i] = new double[allTerms.Count];
-                for (int j = 0; j < allTerms.Count; j++)
+                // Handle empty tokenized descriptions
+                if (tokenizedDescriptions[i] == null || tokenizedDescriptions[i].Count == 0)
                 {
-                    var term = allTerms[j];
-                    tf[i][j] = terms[i].Count(t => t == term) / (double)terms[i].Count;
+                    tfMatrix[i] = new double[allStrings.Count]; // Fill with zeros
+                    continue;
+                }
+
+                tfMatrix[i] = new double[allStrings.Count];
+                foreach (string s in allStrings)
+                {
+                    // Ensure the term exists in tokenized descriptions
+                    double termFrequency = tokenizedDescriptions[i].Count(t => t == s) / (double)tokenizedDescriptions[i].Count;
+                    int termIndex = allStrings.IndexOf(s);
+                    if (termIndex >= 0)
+                    {
+                        tfMatrix[i][termIndex] = termFrequency;
+                    }
                 }
             }
-            return tf;
+            return tfMatrix;
         }
-        private double[][] ComputeTFIDF(List<string> descriptions)
+        private double[][] ComputeTFIDF(List<string> descriptions, List<string> allStrings)
         {
-            var terms = descriptions.Select(d => Tokenize(d)).ToList();
-            var allTerms = terms.SelectMany(t => t).Distinct().ToList();
-
-            var tfidf = new double[descriptions.Count][];
+            var tokenizedDescriptions = descriptions.Select(desc => Tokenize(desc)).ToList();
+            double[][] tfidfMatrix = new double[descriptions.Count][];
+            // Compute IDF for each term
+            var idfValues = new double[allStrings.Count];
+            for (int j = 0; j < allStrings.Count; j++)
+            {
+                string term = allStrings[j];
+                int documentCountWithTerm = tokenizedDescriptions.Count(doc => doc.Contains(term));
+                idfValues[j] = Math.Log((1 + descriptions.Count) / (1 + documentCountWithTerm));
+            }
+            // Compute TF-IDF for each document
             for (int i = 0; i < descriptions.Count; i++)
             {
-                tfidf[i] = new double[allTerms.Count];
-                for (int j = 0; j < allTerms.Count; j++)
+                tfidfMatrix[i] = new double[allStrings.Count];
+                foreach (var term in allStrings)
                 {
-                    var term = allTerms[j];
-                    tfidf[i][j] = ComputeTFIDFForTerm(terms, term, i);
+                    double tf = tokenizedDescriptions[i].Count(t => t == term) / (double)tokenizedDescriptions[i].Count;
+                    double idf = idfValues[allStrings.IndexOf(term)];
+                    tfidfMatrix[i][allStrings.IndexOf(term)] = tf * idf;
                 }
             }
-            return tfidf;
-        }
-        private double ComputeTFIDFForTerm(List<List<string>> terms, string term, int documentIndex)
-        {
-            double tf = terms[documentIndex].Count(t => t == term) / (double)terms[documentIndex].Count;
-            double idf = Math.Log(terms.Count / (1 + terms.Count(d => d.Contains(term))));
-            return tf * idf;
+
+
+            return tfidfMatrix;
         }
         private void SaveResultsButton_Click(object sender, RoutedEventArgs e)
         {
@@ -560,6 +410,126 @@ namespace GrupowanieStronWWW
             res = res / (a*b);
 
             return 1.0 - res;
+        }
+
+
+        public static double RandIndex(int[] trueLabels, int[] predictedLabels)
+        {
+            int n = trueLabels.Length;
+            int tp = 0, tn = 0, fp = 0, fn = 0;
+
+            for (int i = 0; i < n; i++)
+            {
+                for (int j = i + 1; j < n; j++)
+                {
+                    bool sameClass = trueLabels[i] == trueLabels[j];
+                    bool sameCluster = predictedLabels[i] == predictedLabels[j];
+
+                    if (sameClass && sameCluster) tp++;
+                    else if (!sameClass && !sameCluster) tn++;
+                    else if (!sameClass && sameCluster) fp++;
+                    else if (sameClass && !sameCluster) fn++;
+                }
+            }
+
+            return (double)(tp + tn) / (tp + tn + fp + fn);
+        }
+        public static double SilhouetteScore(double[][] data, int[] labels, Func<double[], double[], double> distanceFunction)
+        {
+            int n = data.Length;
+            double totalSilhouette = 0.0;
+
+            for (int i = 0; i < n; i++)
+            {
+                double a = 0.0; // Średnia odległość do punktów w tym samym klastrze
+                double b = double.MaxValue; // Minimalna średnia odległość do punktów w innych klastrach
+
+                int sameClusterCount = 0;
+
+                for (int j = 0; j < n; j++)
+                {
+                    if (i == j) continue;
+
+                    double distance = distanceFunction(data[i], data[j]);
+
+                    if (labels[i] == labels[j])
+                    {
+                        a += distance;
+                        sameClusterCount++;
+                    }
+                    else
+                    {
+                        // Oblicz odległość do innych klastrów
+                        double otherClusterDistance = distance;
+                        b = Math.Min(b, otherClusterDistance);
+                    }
+                }
+
+                a = sameClusterCount > 0 ? a / sameClusterCount : 0.0;
+
+                // Oblicz wskaźnik Silhouette dla punktu i
+                double silhouette = (b - a) / Math.Max(a, b);
+                totalSilhouette += silhouette;
+            }
+
+            // Zwróć średni wskaźnik Silhouette
+            return totalSilhouette / n;
+        }
+        public static double WCSS(double[][] data, int[] labels, Func<double[], double[], double> distanceFunction)
+        {
+            var centroids = ComputeCentroids(data, labels);
+
+            double wcss = 0.0;
+
+            for (int i = 0; i < data.Length; i++)
+            {
+                int cluster = labels[i];
+                double[] centroid = centroids[cluster];
+                wcss += Math.Pow(distanceFunction(data[i], centroid),2);
+            }
+
+            return wcss;
+        }
+        public static Dictionary<int, double[]> ComputeCentroids(double[][] data, int[] labels)
+        {
+            var clusters = new Dictionary<int, List<double[]>>();
+
+            // Grupuj punkty według etykiet klastrów
+            for (int i = 0; i < labels.Length; i++)
+            {
+                int cluster = labels[i];
+                if (!clusters.ContainsKey(cluster))
+                    clusters[cluster] = new List<double[]>();
+
+                clusters[cluster].Add(data[i]);
+            }
+
+            // Oblicz centroidy jako średnią punktów w każdym klastrze
+            var centroids = new Dictionary<int, double[]>();
+            foreach (var cluster in clusters)
+            {
+                int clusterId = cluster.Key;
+                var points = cluster.Value;
+                int dimensions = points[0].Length;
+
+                double[] centroid = new double[dimensions];
+                foreach (var point in points)
+                {
+                    for (int d = 0; d < dimensions; d++)
+                    {
+                        centroid[d] += point[d];
+                    }
+                }
+
+                for (int d = 0; d < dimensions; d++)
+                {
+                    centroid[d] /= points.Count;
+                }
+
+                centroids[clusterId] = centroid;
+            }
+
+            return centroids;
         }
     }
 }

@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:GrupowanieStronWWW"
         mc:Ignorable="d"
-        Title="Algorithm Selection" Height="210" Width="350">
+        Title="Algorithm Selection" Height="240" Width="350">
     <Grid Margin="0">
         <StackPanel Background="#FFCBD2D2">
             <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
@@ -29,6 +29,19 @@
                     <TextBlock Text="Clusters:" Width="100" VerticalAlignment="Center" />
                     <TextBox x:Name="ClustersTextBox" Width="100" />
                 </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="10,0,0,10">
+                    <TextBlock Text="Choose linkage:" Width="100" VerticalAlignment="Center"/>
+                    <ComboBox x:Name="Linkage" Width="150">
+                        <ComboBoxItem Content="McQuitty" />
+                        <ComboBoxItem Content="Median" />
+                        <ComboBoxItem Content="Average" />
+                        <ComboBoxItem Content="Centroid" />
+                        <ComboBoxItem Content="Ward" />
+                        <ComboBoxItem Content="Single" />
+                        <ComboBoxItem Content="Complete" />
+                    </ComboBox>
+                </StackPanel>
+                
                 <StackPanel Orientation="Horizontal" Margin="10,0,0,10"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="5">

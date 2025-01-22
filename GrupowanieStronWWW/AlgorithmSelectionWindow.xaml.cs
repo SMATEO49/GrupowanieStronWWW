@@ -13,6 +13,7 @@ namespace GrupowanieStronWWW
         public IDistance<double[]> DistanceMetrics {  get; private set; }
 
         public string metric {  get; private set; }
+        public string linkage { get; private set; }
 
         public AlgorithmSelectionWindow()
         {
@@ -39,8 +40,8 @@ namespace GrupowanieStronWWW
 
         private void OkButton_Click(object sender, RoutedEventArgs e)
         {
-            SelectedAlgorithm = (AlgorithmComboBox.SelectedItem as ComboBoxItem)?.Content.ToString();
-
+            SelectedAlgorithm = AlgorithmComboBox.Text;
+            linkage = Linkage.Text;
             DistanceMetrics = GetSelectedDistanceMetric();
 
 

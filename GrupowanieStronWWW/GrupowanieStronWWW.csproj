@@ -13,6 +13,7 @@
     <PackageReference Include="Accord.MachineLearning" Version="3.8.0" />
     <PackageReference Include="Accord.Statistics" Version="3.8.0" />
     <PackageReference Include="CsvHelper" Version="33.0.1" />
+    <PackageReference Include="Numerics.NET" Version="9.0.5" />
   </ItemGroup>
 
 </Project>
